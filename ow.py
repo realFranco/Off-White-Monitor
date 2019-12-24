@@ -37,19 +37,18 @@ def read_from_txt(path):
         f = open(path, "r")
         raw_lines = f.readlines()
         f.close()
-
+        
+        if raw_lines: 
+            # Parse the data
+            lines = [line.strip('\n') for line in raw_lines]
+        else:
+            log('w', "No data found in: " + path)
+            raise NoDataLoaded()
+        
     # Raise an error if the file couldn't be found
     except:
         log('e', "Couldn't locate: " + path)
         raise FileNotFound()
-
-    if(len(raw_lines) == 0):
-        log('w', "No data found in: " + path)
-        raise NoDataLoaded()
-
-    # Parse the data
-    for line in raw_lines:
-        lines.append(line.strip("\n"))
 
     # Return the data
     return lines
@@ -75,7 +74,7 @@ def add_to_db(product):
     # Add product to database if it's unique
     try:
         c.execute("""INSERT INTO products (title, link, stock, keywords) VALUES (?, ?, ?, ?)""", (title, link, stock, keyword))
-        log('s', "Found new product with keyword " + keyword + ". Link = " + link)        
+        log('s', "Found new product with keyword " + keyword + ". Link = " + link)
         alert = True
     except:
         # Product already exists, let's check for stock updates
@@ -105,21 +104,25 @@ def add_to_db(product):
     return alert
 
 def notify(product, slack, discord):
+    """
+    @slack Boolean: Set the slack notify.
+    
+    @discord Boolean: Set the discord notify.
+    """
 
-    times = []
+    times, sizes = [], ''
     today = datetime.now()
     times.append(today)
-    sizes = ""
-
-    for size in product.stock_options:
-        sizes+= (size + " ")
+    
+    # Concatenating the set of strings from the product dict.
+    sizes += ' '.join(product.stock_options)
 
     if slack:
         sc = slackweb.Slack(url=slack)
         attachments = []
         attachment = {
             "title": product.title,
-            "color":"#EAF4EC", 
+            "color": "#EAF4EC", 
             "text": product.link,
             "fields": [
                 {
@@ -148,9 +151,7 @@ def notify(product, slack, discord):
 def monitor(link, keywords, slack, discord):
 
     log('i', "Checking site: " + link + "...")
-    isEarlyLink = False
-    links = []
-    pages = []
+    isEarlyLink, links, pages = False, [], []
     # Parse the site from the link
     pos_https = link.find("https://")
     pos_http = link.find("http://")
@@ -169,13 +170,11 @@ def monitor(link, keywords, slack, discord):
             site = site[:end]
         site = "http://" + site
 
-    if pos_omia > 0:
-        isEarlyLink = True
+    isEarlyLink = pos_omia > 0
 
     # build search links
     if (link.endswith('=')):
-        for word in keywords:
-            links.append(link + word)
+        links += [link + word for word in keywrods]
     else:
         links.append(link)
 
@@ -222,8 +221,7 @@ def monitor(link, keywords, slack, discord):
             if not size_opts:
                 stock_data.append('Unavailable')
             else:
-                for size in size_opts:
-                    stock_data.append(size['name'])
+                stock_data += [size['name'] for size in size_opts]
             product = Product(title, l, stock_data, "N/A", str(image), stock_data)
             alert = add_to_db(product)
 
@@ -261,11 +259,10 @@ def monitor(link, keywords, slack, discord):
         index = 0
         for href in hrefs:
             found = False
-            if len(keywords) > 0:
+            if keywords:
                 for keyword in keywords:
                     if keyword.upper() in captions[index].text.upper():
-                        found = True
-                        stock_data = []
+                        stock_data, found = True, []
                         
                         url = (site+hrefs[index]+'.json')
 
@@ -277,15 +274,14 @@ def monitor(link, keywords, slack, discord):
                         if not size_opts:
                             stock_data.append('Unavailable')
                         else:
-                            for size in size_opts:
-                                stock_data.append(size['name'])
+                            stock_data += [size['name'] for size in size_opts]
 
                         product = Product(captions[index].text, (site + hrefs[index]), stock_data, keyword, str(images[index]['src']), stock_data)
                         alert = add_to_db(product)
 
                         if alert:
                             notify(product, slack, discord)
-            index = index + 1
+            index += 1
 
 
 def __main__():
